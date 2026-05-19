@@ -33,20 +33,8 @@ echo  Node.js: %NODE_VER% >> "%LOGFILE%"
 :: ============================================================
 ::  CHECK 2: Are npm dependencies installed?
 :: ============================================================
-if not exist "%~dp0monitor1\node_modules" (
-    echo [ERROR] monitor1\node_modules not found. Run SETUP.bat first. >> "%LOGFILE%"
-    color 0C
-    echo.
-    echo  ERROR: Dependencies not installed.
-    echo  Please run SETUP.bat first.
-    echo.
-    echo  Full log: %LOGFILE%
-    echo.
-    pause
-    exit /b 1
-)
-if not exist "%~dp0monitor2\node_modules" (
-    echo [ERROR] monitor2\node_modules not found. Run SETUP.bat first. >> "%LOGFILE%"
+if not exist "%~dp0kiosk\node_modules" (
+    echo [ERROR] kiosk\node_modules not found. Run SETUP.bat first. >> "%LOGFILE%"
     color 0C
     echo.
     echo  ERROR: Dependencies not installed.
@@ -60,29 +48,19 @@ if not exist "%~dp0monitor2\node_modules" (
 echo [OK] Dependencies found >> "%LOGFILE%"
 
 :: ============================================================
-::  CHECK 3: Are .env files present?
+::  CHECK 3: Is .env present?
 :: ============================================================
-if not exist "%~dp0monitor1\.env" (
-    echo [ERROR] monitor1\.env not found. >> "%LOGFILE%"
+if not exist "%~dp0kiosk\.env" (
+    echo [ERROR] kiosk\.env not found. >> "%LOGFILE%"
     color 0C
     echo.
-    echo  ERROR: monitor1\.env is missing.
+    echo  ERROR: kiosk\.env is missing.
     echo  Please run SETUP.bat first.
     echo.
     pause
     exit /b 1
 )
-if not exist "%~dp0monitor2\.env" (
-    echo [ERROR] monitor2\.env not found. >> "%LOGFILE%"
-    color 0C
-    echo.
-    echo  ERROR: monitor2\.env is missing.
-    echo  Please run SETUP.bat first.
-    echo.
-    pause
-    exit /b 1
-)
-echo [OK] .env files found >> "%LOGFILE%"
+echo [OK] .env file found >> "%LOGFILE%"
 
 :: ============================================================
 ::  CHECK 4: Find Chrome
@@ -123,15 +101,15 @@ echo  ================================================
 echo.
 
 :: ============================================================
-::  STEP 1: Start the two Node.js servers
+::  STEP 1: Start the two Node.js servers (same codebase, different profiles)
 :: ============================================================
-echo  Starting Info server (port 3000)...
+echo  Starting Info server (port 3000, profile: info)...
 echo  [1/4] Starting Info server... >> "%LOGFILE%"
-start "QS Kiosk -- Overall Info" /min cmd /c "cd /d "%~dp0monitor1" && node server.js"
+start "QS Kiosk -- Overall Info" /min cmd /c "cd /d "%~dp0kiosk" && set PORT=3000& set QUICKSIGHT_PROFILE=info&& node server.js"
 
-echo  Starting Stats server (port 3001)...
+echo  Starting Stats server (port 3001, profile: stats)...
 echo  [2/4] Starting Stats server... >> "%LOGFILE%"
-start "QS Kiosk -- Stats per Department" /min cmd /c "cd /d "%~dp0monitor2" && node server.js"
+start "QS Kiosk -- Stats per Department" /min cmd /c "cd /d "%~dp0kiosk" && set PORT=3001& set QUICKSIGHT_PROFILE=stats&& node server.js"
 
 :: Give the servers time to start
 echo  Waiting for servers to initialise...

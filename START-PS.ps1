@@ -29,31 +29,21 @@ function CheckNode {
 }
 
 function CheckDeps {
-    $m1 = Join-Path $ScriptDir "monitor1\node_modules"
-    $m2 = Join-Path $ScriptDir "monitor2\node_modules"
-    if (-not (Test-Path $m1)) {
-        Write-Host "ERROR: monitor1\node_modules not found. Run SETUP.bat first." -ForegroundColor Red
-        exit 1
-    }
-    if (-not (Test-Path $m2)) {
-        Write-Host "ERROR: monitor2\node_modules not found. Run SETUP.bat first." -ForegroundColor Red
+    $kiosk = Join-Path $ScriptDir "kiosk\node_modules"
+    if (-not (Test-Path $kiosk)) {
+        Write-Host "ERROR: kiosk\node_modules not found. Run SETUP.bat first." -ForegroundColor Red
         exit 1
     }
     Log "Dependencies OK"
 }
 
 function CheckEnv {
-    $e1 = Join-Path $ScriptDir "monitor1\.env"
-    $e2 = Join-Path $ScriptDir "monitor2\.env"
-    if (-not (Test-Path $e1)) {
-        Write-Host "ERROR: monitor1\.env missing. Run SETUP.bat first." -ForegroundColor Red
+    $e = Join-Path $ScriptDir "kiosk\.env"
+    if (-not (Test-Path $e)) {
+        Write-Host "ERROR: kiosk\.env missing. Run SETUP.bat first." -ForegroundColor Red
         exit 1
     }
-    if (-not (Test-Path $e2)) {
-        Write-Host "ERROR: monitor2\.env missing. Run SETUP.bat first." -ForegroundColor Red
-        exit 1
-    }
-    Log ".env files OK"
+    Log ".env file OK"
 }
 
 function FindChrome {
@@ -68,14 +58,20 @@ function FindChrome {
 }
 
 function StartServer {
-    param([string]$Dir, [string]$Title, [int]$Port)
-    $fullDir = Join-Path $ScriptDir $Dir
-    Log "Starting $Title server (port $Port)..."
+    param([string]$Title, [string]$Profile, [int]$Port)
+    $fullDir = Join-Path $ScriptDir "kiosk"
+    Log "Starting $Title server (port $Port, profile $Profile)..."
+
+    $env:PORT = $Port
+    $env:QUICKSIGHT_PROFILE = $Profile
 
     $proc = Start-Process -FilePath "node" -ArgumentList "server.js" `
         -WorkingDirectory $fullDir `
         -WindowStyle Minimized `
         -PassThru
+
+    Remove-Item Env:\PORT -ErrorAction SilentlyContinue
+    Remove-Item Env:\QUICKSIGHT_PROFILE -ErrorAction SilentlyContinue
 
     Log "  PID: $($proc.Id)"
     return $proc
@@ -138,8 +134,8 @@ if (-not $Chrome) {
 Log "Chrome found at: $Chrome"
 
 # Start servers
-$server1 = StartServer "monitor1" "Info" 3000
-$server2 = StartServer "monitor2" "Stats" 3001
+$server1 = StartServer "Info" "info" 3000
+$server2 = StartServer "Stats" "stats" 3001
 
 # Wait for servers
 $ok1 = WaitForServer 3000 "Info"

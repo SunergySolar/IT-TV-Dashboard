@@ -3,10 +3,12 @@
 Dual-monitor rotating kiosk for AWS QuickSight dashboards.
 
 ```
-monitor1\   →  2 dashboards       →  http://localhost:3000
-monitor2\   →  13 dashboard tabs  →  http://localhost:3001
+kiosk\
+  config.js    →  profiles: "info" (2 dashboards), "stats" (13 tabs)
+  server.js    →  unified server (registered-user embed + SDK)
 ```
-*** More can be added by copying the .envs you set up, changing ports, and making minor tweaks to the server.js and html files
+
+*** New profiles can be added by editing `kiosk\config.js` — each profile defines its own slides and timing.
 
 ---
 
@@ -26,23 +28,22 @@ Install these before running SETUP.bat:
 
 ### Step 1 — Run SETUP.bat
 Double-click `SETUP.bat`. It will:
-- Install Node.js dependencies for both monitors
-- Create `.env` files from the examples
+- Install Node.js dependencies in `kiosk/`
+- Create `.env` from `.env.example`
 
-### Step 2 — Fill in both .env files
-Open `monitor1\.env` and `monitor2\.env` in Notepad and fill in:
+### Step 2 — Fill in .env
+Open `kiosk\.env` in Notepad and fill in:
 ```
 AWS_ACCESS_KEY_ID=...
 AWS_SECRET_ACCESS_KEY=...
 AWS_REGION=us-east-1
 AWS_ACCOUNT_ID=123456789012
+QUICKSIGHT_KIOSK_USER=TV-IT
 ```
-*** Must have username added for full dashboard + tabs integration
-Ports are already set: monitor1 = 3000, monitor2 = 3001.
+Ports are already set: info = 3000, stats = 3001.
 
-### Step 3 — Fill in both config.js files
-Open `monitor1\config.js` — paste your 2 dashboard IDs.
-Open `monitor2\config.js` — paste your dashboard ID and all 13 sheet IDs.
+### Step 3 — Edit config.js (optional)
+Open `kiosk\config.js` to modify dashboard/sheet IDs or add new profiles.
 
 Finding your IDs: open a QuickSight dashboard tab in your browser. The URL looks like:
 ```
@@ -118,12 +119,13 @@ Replace the placeholder values with your region, account ID, and dashboard IDs.
   "Statement": [
     {
       "Effect": "Allow",
-      "Action": ["quicksight:GenerateEmbedUrlForAnonymousUser"],
+      "Action": ["quicksight:GenerateEmbedUrlForRegisteredUser"],
       "Resource": [
         "arn:aws:quicksight:YOUR_REGION:YOUR_ACCOUNT_ID:namespace/default",
-        "arn:aws:quicksight:YOUR_REGION:YOUR_ACCOUNT_ID:dashboard/MONITOR1_DASHBOARD_1_ID",
-        "arn:aws:quicksight:YOUR_REGION:YOUR_ACCOUNT_ID:dashboard/MONITOR1_DASHBOARD_2_ID",
-        "arn:aws:quicksight:YOUR_REGION:YOUR_ACCOUNT_ID:dashboard/MONITOR2_DASHBOARD_ID"
+        "arn:aws:quicksight:YOUR_REGION:YOUR_ACCOUNT_ID:user/default/TV-IT",
+        "arn:aws:quicksight:YOUR_REGION:YOUR_ACCOUNT_ID:dashboard/b16a842d-7939-4084-8f01-afb36e1210eb",
+        "arn:aws:quicksight:YOUR_REGION:YOUR_ACCOUNT_ID:dashboard/ece79b96-4add-415f-a753-97bca2613117",
+        "arn:aws:quicksight:YOUR_REGION:YOUR_ACCOUNT_ID:dashboard/da47eea0-bf07-445a-8d2f-468f7c199a6e"
       ]
     }
   ]
@@ -134,14 +136,17 @@ Replace the placeholder values with your region, account ID, and dashboard IDs.
 
 ## QuickSight Requirements
 
-1. **Enterprise Edition** — anonymous embedding is not available on Standard.
+1. **Registered user** — register `TV-IT` (or your chosen user) in QuickSight:
+   - Go to **Manage QuickSight** → **Users** → **Create user**
+   - Set user name to match `QUICKSIGHT_KIOSK_USER` in `.env`
+   - Role: **Reader**
 2. **Register domains in QuickSight console** (this is the #1 cause of blank/white screens):
    - Go to **Manage QuickSight** → **Domains and embedding**
    - Click **Add domain**
    - Add **both** of these:
      - `http://localhost:3000`
      - `http://localhost:3001`
-   - These must match the `ALLOWED_DOMAINS` in each monitor's `.env` file
+   - These must match the `ALLOWED_DOMAINS` in `.env`
 3. **Dashboards must be published** (not just saved).
 
 ---
@@ -154,6 +159,7 @@ Replace the placeholder values with your region, account ID, and dashboard IDs.
 | Chrome opens on wrong monitor | Edit MONITOR1_X / MONITOR2_X in START.bat; ensure TVs are detected in Windows Display Settings |
 | Both Chrome windows open on the same TV | Increase the timeout between Chrome launches in START.bat (currently 6s); try `--monitor-id` instead of `--app-launch-window-position` |
 | Blank screen in Chrome | Check the server window for error messages; verify .env values |
-| "AccessDeniedException" | IAM policy is missing or a dashboard ID is wrong |
-| "UnsupportedPricingPlanException" | Account is on Standard edition, not Enterprise |
+| "AccessDeniedException" | IAM policy is missing `GenerateEmbedUrlForRegisteredUser` or a dashboard ID is wrong |
+| "QuickSightUserNotFoundException" | `QUICKSIGHT_KIOSK_USER` not registered in QuickSight — create the user per QuickSight Requirements above |
+| "ResourceNotFoundException" | User or dashboard not found — check `QUICKSIGHT_KIOSK_USER` and dashboard IDs |
 | Port already in use | Run STOP.bat first, or restart the PC |

@@ -7,7 +7,7 @@ echo.
 
 :: Kill Node.js server processes
 taskkill /fi "WindowTitle eq QS Kiosk -- Overall Info" /f >nul 2>&1
-taskkill /fi "WindowTitle eq QS Kiosk -- Stats" /f >nul 2>&1
+taskkill /fi "WindowTitle eq QS Kiosk -- Stats per Department" /f >nul 2>&1
 
 :: Also catch any stray node processes on our ports (in case titles changed)
 for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":3000 " ^| findstr "LISTENING"') do (
