@@ -115,6 +115,7 @@
   <div class="spacer"></div>
   <span class="h-val" id="hud-clock" style="font-size:11px"></span>
   <div class="h-div"></div>
+  <button id="pause-btn" onclick="togglePause()" style="display:none">❚❚ Pause</button>
   <div class="h-status">
     <div class="dot dot-load" id="status-dot"></div>
     <span id="status-txt">Connecting</span>
@@ -148,6 +149,7 @@ let dashLoaded       = false;
 let scrollTimer      = null;
 let scrollDir        = 0;
 let autoScrollSlides = [];
+let paused           = false;
 const CIRC           = 2 * Math.PI * 11;
 const SCROLL_INTERVAL = 15;
 const SCROLL_STEP     = 120;
@@ -216,6 +218,21 @@ function stopAutoScroll() {
   if (container) {
     container.classList.remove('scrolling');
     container.style.transform = '';
+  }
+}
+
+/* ── Pause / Resume ──────────────────────────────────────────── */
+function togglePause() {
+  paused = !paused;
+  const btn = document.getElementById('pause-btn');
+  if (paused) {
+    btn.textContent = '▶ Play';
+    btn.classList.add('paused');
+    setStatus('live', 'Paused');
+  } else {
+    btn.textContent = '❚❚ Pause';
+    btn.classList.remove('paused');
+    setStatus('live', 'Live');
   }
 }
 
@@ -442,8 +459,10 @@ function startTicker() {
   if (ticker) clearInterval(ticker);
   ticker = setInterval(() => {
     if (!ready) return;
-    rotCount = Math.max(0, rotCount - 1);
-    refCount = Math.max(0, refCount - 1);
+    if (!paused) {
+      rotCount = Math.max(0, rotCount - 1);
+      refCount = Math.max(0, refCount - 1);
+    }
     updateHUD();
     if (rotCount <= 0) next();
     if (refCount <= 0) refresh();
@@ -484,6 +503,7 @@ async function init() {
     setStatus('live', 'Live');
     hideOverlay();
     ready = true;
+    document.getElementById('pause-btn').style.display = '';
     startTicker();
     setTimeout(startAutoScroll, 700);
 
