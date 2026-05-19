@@ -145,14 +145,16 @@ let refCount         = 600;
 let ready            = false;
 let ticker           = null;
 let embeddedDash     = null;
+let embedContext     = null;
 let dashLoaded       = false;
 let scrollTimer      = null;
 let scrollDir        = 0;
 let autoScrollSlides = [];
 let paused           = false;
+let stepSize         = 120;
+let maxScroll        = -960;
+let busy             = false;
 const CIRC           = 2 * Math.PI * 11;
-const SCROLL_INTERVAL = 15;
-const SCROLL_STEP     = 120;
 
 /* ── Helpers ─────────────────────────────────────────────────── */
 function overlay(icon, title, msg, showRetry = false) {
@@ -199,16 +201,32 @@ function startAutoScroll() {
   container.classList.add('scrolling');
   scrollDir = 1;
 
+  // Find the QuickSight iframe inside the container
+  const iframe = container.querySelector('iframe');
+  if (!iframe) {
+    console.log('[SCROLL] no iframe found yet in container');
+    return;
+  }
+
+  // Expand iframe and container height so full content is rendered in DOM
+  const iframeH = iframe.scrollHeight;
+  iframe.style.height = iframeH + 'px';
+  container.style.height = iframeH + 'px';
+
+  // Dynamic scroll params
+  const scrollSteps = slide.scrollSteps || 8;
+  const scrollIntervalMs = (rotSecs * 1000) / scrollSteps;
+  stepSize = iframeH / scrollSteps;
+  maxScroll = -iframeH;
+  console.log(`[SCROLL] iframeH: ${iframeH}px | steps: ${scrollSteps} | interval: ${scrollIntervalMs}ms | stepSize: ${stepSize.toFixed(1)}px | max: ${maxScroll}px`);
+
   scrollTimer = setInterval(() => {
     const currentTransform = container.style.transform || 'translateY(0px)';
-    const currentY = parseInt(currentTransform.replace(/[^0-9\-]/g, ''), 10) || 0;
-    const maxScroll = -SCROLL_STEP * 8;
-    const newY = scrollDir === 1
-      ? Math.max(currentY - SCROLL_STEP, maxScroll)
-      : Math.min(currentY + SCROLL_STEP, 0);
+    const currentY = parseFloat(currentTransform.match(/translateY\(([-\d.]+)px\)/)?.[1]) || 0;
+    const newY = Math.max(currentY - stepSize, maxScroll);
     container.style.transform = `translateY(${newY}px)`;
-    scrollDir *= -1;
-  }, SCROLL_INTERVAL * 1000);
+    console.log(`[SCROLL] tick: ${currentY.toFixed(1)} → ${newY.toFixed(1)}px`);
+  }, scrollIntervalMs);
 }
 
 function stopAutoScroll() {
@@ -221,6 +239,38 @@ function stopAutoScroll() {
   }
 }
 
+function pauseAutoScroll() {
+  if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
+}
+
+function resumeAutoScroll() {
+  const slide = slides[current];
+  if (!slide?.autoScroll) return;
+  const container = document.getElementById('qs-container');
+  if (!container) return;
+
+  const iframe = container.querySelector('iframe');
+  if (!iframe) return;
+
+  const iframeH = iframe.scrollHeight;
+  iframe.style.height = iframeH + 'px';
+  container.style.height = iframeH + 'px';
+
+  const scrollSteps = slide.scrollSteps || 8;
+  const scrollIntervalMs = (rotSecs * 1000) / scrollSteps;
+  stepSize = iframeH / scrollSteps;
+  maxScroll = -iframeH;
+  console.log(`[SCROLL] iframeH: ${iframeH}px | steps: ${scrollSteps} | interval: ${scrollIntervalMs}ms | stepSize: ${stepSize.toFixed(1)}px | max: ${maxScroll}px`);
+
+  scrollTimer = setInterval(() => {
+    const currentTransform = container.style.transform || 'translateY(0px)';
+    const currentY = parseFloat(currentTransform.match(/translateY\(([-\d.]+)px\)/)?.[1]) || 0;
+    const newY = Math.max(currentY - stepSize, maxScroll);
+    container.style.transform = `translateY(${newY}px)`;
+    console.log(`[SCROLL] tick: ${currentY.toFixed(1)} → ${newY.toFixed(1)}px`);
+  }, scrollIntervalMs);
+}
+
 /* ── Pause / Resume ──────────────────────────────────────────── */
 function togglePause() {
   paused = !paused;
@@ -229,10 +279,12 @@ function togglePause() {
     btn.textContent = '▶ Play';
     btn.classList.add('paused');
     setStatus('live', 'Paused');
+    pauseAutoScroll();
   } else {
     btn.textContent = '❚❚ Pause';
     btn.classList.remove('paused');
     setStatus('live', 'Live');
+    resumeAutoScroll();
   }
 }
 
@@ -240,17 +292,23 @@ function togglePause() {
 async function embedDashboard(embedUrl, initialSheetId, isAutoScroll) {
   const vp = document.getElementById('viewport');
 
-  // Remove old container and give SDK time to clean up
-  const oldContainer = document.getElementById('qs-container');
-  if (oldContainer) {
-    oldContainer.remove();
+  // Dispose the previous EmbeddingContext and clean up all leaked
+  // body-level QuickSight iframes before creating a new one.
+  if (embedContext) {
+    try { embedContext.dispose(); } catch (_) { /* no-op */ }
+    embedContext = null;
   }
+
+  // Remove any orphaned QuickSight iframes that the SDK left in
+  // <body> across previous embedding-context lifetimes.
+  document.querySelectorAll('iframe.quicksight-embedding-iframe').forEach(f => f.remove());
+
+  // Remove old container
+  const oldContainer = document.getElementById('qs-container');
+  if (oldContainer) oldContainer.remove();
+
   embeddedDash = null;
   dashLoaded = false;
-
-  // Brief delay to let the QuickSight SDK finish tearing down the
-  // previous iframe / embedding context before we create a new one.
-  await new Promise(r => setTimeout(r, 200));
 
   const container = document.createElement('div');
   container.id = 'qs-container';
@@ -258,10 +316,10 @@ async function embedDashboard(embedUrl, initialSheetId, isAutoScroll) {
   vp.appendChild(container);
 
   const { createEmbeddingContext } = window.QuickSightEmbedding;
-  const context = await createEmbeddingContext();
+  embedContext = await createEmbeddingContext();
 
   await new Promise((resolve, reject) => {
-    context.embedDashboard(
+    embedContext.embedDashboard(
       {
         url:                   embedUrl,
         container:             container,
@@ -339,6 +397,18 @@ async function navigateToSheet(sheetId) {
 
 /* ── Rotation ────────────────────────────────────────────────── */
 async function goTo(idx) {
+  // Skip if refresh() is already mid-flight to prevent two embedDashboard()
+  // calls from racing each other and tearing down each other's iframes.
+  if (busy) return;
+  busy = true;
+  try {
+    await _goTo(idx);
+  } finally {
+    busy = false;
+  }
+}
+
+async function _goTo(idx) {
   stopAutoScroll();
   const oldDot = document.getElementById(`dot-${current}`);
   if (oldDot) oldDot.classList.remove('active');
@@ -351,7 +421,6 @@ async function goTo(idx) {
   updateDots(current);
   document.getElementById('hud-name').textContent  = newSlide.name || '—';
   document.getElementById('hud-count').textContent = `(${current + 1} / ${slides.length})`;
-  rotCount = rotSecs;
 
   if (needsReembed) {
     // Different dashboard — fetch a fresh embed URL and re-embed.
@@ -361,6 +430,7 @@ async function goTo(idx) {
     try {
       const freshUrl = await fetchFreshEmbedUrl(newSlide);
       await embedDashboard(freshUrl, newSlide.sheetId, newSlide.autoScroll);
+      rotCount = rotSecs;
     } catch (err) {
       console.error('[GOTO] Failed to get fresh embed URL:', err);
       setStatus('error', 'Embed error');
@@ -368,12 +438,14 @@ async function goTo(idx) {
       // Restore current index since embed failed
       current = idx;
       updateDots(current);
+      rotCount = rotSecs;
       return;
     }
     setStatus('live', 'Live');
   } else {
     // Same dashboard — just navigate to the sheet
     await navigateToSheet(newSlide.sheetId);
+    rotCount = rotSecs;
   }
   setTimeout(startAutoScroll, 700);
 }
@@ -435,6 +507,12 @@ async function fetchFreshEmbedUrl(slide) {
 
 /* ── Refresh every 10 min ────────────────────────────────────── */
 async function refresh() {
+  // Skip if goTo() is already embedding — prevents two embedDashboard()
+  // calls from racing and corrupting the QuickSight iframe/context.
+  if (busy) {
+    refCount = refSecs;
+    return;
+  }
   setStatus('load', 'Refreshing');
   stopAutoScroll();
   const flash = document.getElementById('flash');
@@ -445,12 +523,13 @@ async function refresh() {
     // If current index is out of bounds after refresh, clamp it
     current = Math.min(current, slides.length - 1);
     await embedDashboard(slides[current].embedUrl, slides[current].sheetId, slides[current]?.autoScroll);
-    refCount = refSecs;
     setStatus('live', 'Live');
+    refCount = refSecs;
     if (ready) startAutoScroll();
   } catch (err) {
     console.error('Refresh failed:', err.message);
     setStatus('error', 'Refresh failed');
+    refCount = refSecs;
   }
 }
 
@@ -464,8 +543,8 @@ function startTicker() {
       refCount = Math.max(0, refCount - 1);
     }
     updateHUD();
-    if (rotCount <= 0) next();
-    if (refCount <= 0) refresh();
+    if (rotCount <= 0 && !busy) next();
+    if (refCount <= 0 && !busy) refresh();
   }, 1000);
 }
 
@@ -513,6 +592,10 @@ async function init() {
     overlay('⚠', 'Connection Error', err.message, true);
   }
 }
+
+window.addEventListener('beforeunload', () => {
+  if (embedContext) { try { embedContext.dispose(); } catch (_) {} }
+});
 
 init();
 </script>

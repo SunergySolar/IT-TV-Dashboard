@@ -18,7 +18,7 @@ module.exports = {
     info: {
       DISPLAY_TITLE: "Overall Info",
       ROTATE_INTERVAL_MS: 60_000, // 60 seconds per slide
-      REFRESH_INTERVAL_MS: 600_000, // Re-fetch embed URLs every 10 minutes
+      REFRESH_INTERVAL_MS: 60_000, // Re-fetch embed URLs every 1 minute (testing)
 
       SLIDES: [
         {
@@ -35,6 +35,7 @@ module.exports = {
           visualId:
             "ece79b96-4add-415f-a753-97bca2613117_7459ce6f-7ae1-440b-a8fe-8f8c0f2d87d2",
           autoScroll: true,
+          scrollSteps: 8,
         },
       ],
     },
@@ -42,7 +43,7 @@ module.exports = {
     stats: {
       DISPLAY_TITLE: "Stats per Department",
       ROTATE_INTERVAL_MS: 60_000, // 60 seconds per slide
-      REFRESH_INTERVAL_MS: 600_000, // Re-fetch embed URLs every 10 minutes
+      REFRESH_INTERVAL_MS: 60_000, // Re-fetch embed URLs every 1 minute (testing)
 
       SLIDES: [
         {
