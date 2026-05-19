@@ -55,10 +55,15 @@
   #prog-fill { height: 100%; background: var(--accent); transition: width 1s linear; width: 0; }
 
   /* ── Viewport & slides ────────────────────────────────────── */
-  #viewport { position: fixed; top: calc(var(--hud-h) + 3px); left: 0; right: 0; bottom: 0; }
+  #viewport { position: fixed; top: calc(var(--hud-h) + 3px); left: 0; right: 0; bottom: 0; overflow: hidden; }
   .slide    { position: absolute; inset: 0; opacity: 0; pointer-events: none; transition: opacity var(--ease); }
   .slide.active { opacity: 1; pointer-events: all; }
   .slide iframe { width: 100%; height: 100%; border: none; display: block; }
+
+  /* ── Auto-scroll for slides that need it ──────────────────── */
+  .slide.scrolling iframe {
+    transition: transform 3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
 
   /* ── Dot rail ─────────────────────────────────────────────── */
   #dots {
@@ -135,7 +140,7 @@
 
 <script>
 /* ── Runtime state ───────────────────────────────────────────── */
-let slides      = [];      // [{ name, embedUrl }]
+let slides      = [];      // [{ name, embedUrl, autoScroll }]
 let current     = 0;
 let rotSecs     = 60;
 let refSecs     = 600;
@@ -143,7 +148,11 @@ let rotCount    = 60;
 let refCount    = 600;
 let ready       = false;
 let ticker      = null;
+let scrollTimer = null;
+let scrollDir   = 0;      // 0=not scrolling, 1=down, -1=up
 const CIRC      = 2 * Math.PI * 11;
+const SCROLL_INTERVAL = 15; // seconds before auto-scrolling
+const SCROLL_STEP   = 120;  // pixels per scroll step
 
 /* ── Overlay ─────────────────────────────────────────────────── */
 function overlay(icon, title, msg, showRetry = false) {
@@ -198,17 +207,52 @@ function applyEmbedUrls() {
 
 /* ── Rotation ────────────────────────────────────────────────── */
 function goTo(idx) {
-  document.getElementById(`slide-${current}`).classList.remove('active');
-  document.getElementById(`dot-${current}`).classList.remove('active');
+  stopAutoScroll();
+  const oldSlide = document.getElementById(`slide-${current}`);
+  if (oldSlide) {
+    oldSlide.classList.remove('active');
+    oldSlide.classList.remove('scrolling');
+    const oldFrame = document.getElementById(`frame-${current}`);
+    if (oldFrame) oldFrame.style.transform = '';
+  }
   current = idx;
   document.getElementById(`slide-${current}`).classList.add('active');
   document.getElementById(`dot-${current}`).classList.add('active');
   document.getElementById('hud-name').textContent  = slides[current]?.name || '—';
   document.getElementById('hud-count').textContent = `(${current + 1} / ${slides.length})`;
   rotCount = rotSecs;
+  setTimeout(startAutoScroll, 700);
 }
 
 function next() { goTo((current + 1) % slides.length); }
+
+/* ── Auto-scroll for long list slides ────────────────────────── */
+function startAutoScroll() {
+  stopAutoScroll();
+  const slide = slides[current];
+  if (!slide?.autoScroll) return;
+
+  const el = document.getElementById(`slide-${current}`);
+  el.classList.add('scrolling');
+  scrollDir = 1;
+
+  scrollTimer = setInterval(() => {
+    const iframe = document.getElementById(`frame-${current}`);
+    if (!iframe) return;
+    scrollDir *= -1;
+    const currentTransform = iframe.style.transform || 'translateY(0px)';
+    const currentY = parseInt(currentTransform.replace(/[^0-9\-]/g, ''), 10) || 0;
+    const newY = scrollDir === 1
+      ? Math.max(currentY - SCROLL_STEP, -SCROLL_STEP * 8)  // cap at 8 steps up
+      : Math.min(currentY + SCROLL_STEP, 0);               // cap at 0 (top)
+    iframe.style.transform = `translateY(${newY}px)`;
+  }, SCROLL_INTERVAL * 1000);
+}
+
+function stopAutoScroll() {
+  if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
+  scrollDir = 0;
+}
 
 /* ── HUD update ──────────────────────────────────────────────── */
 function updateHUD() {
@@ -250,14 +294,17 @@ async function fetchEmbedUrls() {
 /* ── Refresh (called every 10 min) ──────────────────────────── */
 async function refresh() {
   setStatus('load', 'Refreshing');
+  stopAutoScroll();
   const flash = document.getElementById('flash');
   flash.style.opacity = '0.06';
   setTimeout(() => { flash.style.opacity = '0'; }, 300);
   try {
     slides = await fetchEmbedUrls();
+    if (slides[1]) slides[1].autoScroll = true;
     applyEmbedUrls();
     refCount = refSecs;
     setStatus('live', 'Live');
+    if (ready) startAutoScroll();
   } catch (err) {
     console.error('Refresh failed:', err.message);
     setStatus('error', 'Refresh failed');
@@ -300,6 +347,8 @@ async function init() {
     // 3. Fetch actual embed URLs
     setStatus('load', 'Fetching URLs');
     slides = await fetchEmbedUrls();
+    // Mark slide 2 (index 1) for auto-scrolling (list content gets cut off)
+    if (slides[1]) slides[1].autoScroll = true;
     applyEmbedUrls();
 
     // 4. Show first slide
