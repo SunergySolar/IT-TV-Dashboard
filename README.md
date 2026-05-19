@@ -1,14 +1,24 @@
 # QuickSight Kiosk — Windows 11 Setup
 
-Dual-monitor rotating kiosk for AWS QuickSight dashboards.
+Dual-monitor rotating kiosk for AWS QuickSight dashboards, displayed on two 57" TVs.
 
 ```
-kiosk\
-  config.js    →  profiles: "info" (2 dashboards), "stats" (13 tabs)
-  server.js    →  unified server (registered-user embed + SDK)
+├── SETUP.bat                First-time setup (install deps, create .env)
+├── START.bat                Launch both servers + Chrome on both TVs
+├── START-PS.ps1             PowerShell alternative to START.bat
+├── STOP.bat                 Kill server processes
+├── SETUP-AUTOSTART.ps1      Add auto-start on Windows login
+├── REMOVE-AUTOSTART.ps1     Remove auto-start entry
+├── kiosk\
+│   ├── .env.example         Environment variable template
+│   ├── config.js            Slide profiles (info + stats)
+│   ├── server.js            Express server (embed URL generation)
+│   ├── package.json         Node dependencies
+│   └── public\
+│       └── index.html       Kiosk frontend (HUD, rotation, QuickSight SDK)
 ```
 
-*** New profiles can be added by editing `kiosk\config.js` — each profile defines its own slides and timing.
+> **New profiles can be added by editing `kiosk\config.js`** — each profile defines its own slides and timing.
 
 ---
 
@@ -40,6 +50,7 @@ AWS_REGION=us-east-1
 AWS_ACCOUNT_ID=123456789012
 QUICKSIGHT_KIOSK_USER=TV-IT
 ```
+
 Ports are already set: info = 3000, stats = 3001.
 
 ### Step 3 — Edit config.js (optional)
@@ -105,6 +116,127 @@ To have the kiosk launch automatically every time the PC logs in:
 3. Done — the kiosk will now start on every login
 
 To remove auto-start: right-click `REMOVE-AUTOSTART.ps1` → Run with PowerShell.
+
+---
+
+## API Endpoints
+
+The Express server (`kiosk/server.js`) exposes four endpoints. Both monitor instances serve the same frontend (`kiosk/public/index.html`) — which profile is active is determined by the `QUICKSIGHT_PROFILE` environment variable set at startup.
+
+### `GET /api/health`
+
+**Purpose:** Simple liveness check.
+
+**Response:**
+```json
+{ "status": "ok", "time": "2026-05-19T12:00:00.000Z" }
+```
+
+**Frontend usage:** Not used by the frontend. Useful for monitoring/healthcheck tooling.
+
+---
+
+### `GET /api/config`
+
+**Purpose:** Returns the current profile's configuration — display title, rotation/refresh intervals, slide names, and which slides have auto-scroll enabled.
+
+**Response:**
+```json
+{
+  "title": "Stats per Department",
+  "rotateMs": 60000,
+  "refreshMs": 600000,
+  "slideCount": 13,
+  "slideNames": ["Deal Review", "Scope Review", "QC", "NEM", "Permitting", ...],
+  "autoScrollSlides": []
+}
+```
+
+**Frontend usage (called during boot in `init()`):**
+1. Sets the HUD title (`document.title` and the top-left logo text)
+2. Configures the rotation timer (`rotSecs = rotateMs / 1000`) and refresh timer (`refSecs = refreshMs / 1000`)
+3. Builds the dot navigation rail with `slideCount` dots
+4. Determines which slides need auto-scrolling (`autoScrollSlides` array)
+
+---
+
+### `GET /api/embed`
+
+**Purpose:** Generates signed QuickSight embed URLs for **all slides** in the current profile. Calls AWS `GenerateEmbedUrlForRegisteredUser` once per slide (with a 200ms gap to avoid rate limiting).
+
+**Response:**
+```json
+{
+  "slides": [
+    {
+      "name": "Deal Review",
+      "embedUrl": "https://...quicksight.amazonaws.com/embed/...",
+      "sheetId": "da47eea0-...-f2b2b6f9-271c-47fa-887c-5ca1b782dc3b",
+      "dashboardId": "da47eea0-bf07-445a-8d2f-468f7c199a6e",
+      "autoScroll": false
+    },
+    ...
+  ],
+  "sessionExpiresAt": 1747656000000
+}
+```
+
+**Frontend usage (called during boot in `init()`):**
+1. After fetching config, the frontend calls `fetchEmbedUrls()` which hits this endpoint
+2. The returned `embedUrl` for slide 0 is immediately embedded into the viewport via the QuickSight Embedding SDK
+3. Every `refreshMs` (default 10 minutes), the frontend calls this endpoint again to refresh all embed URLs before their session expires
+
+---
+
+### `POST /api/embed-url`
+
+**Purpose:** Generates a **single** QuickSight embed URL on demand. Used when navigating to a slide on a *different* dashboard (which requires a fresh embedding context and new signed URL).
+
+**Request body:**
+```json
+{
+  "dashboardId": "da47eea0-bf07-445a-8d2f-468f7c199a6e",
+  "sheetId": "da47eea0-...-f2b2b6f9-271c-47fa-887c-5ca1b782dc3b",
+  "visualId": null,
+  "name": "Deal Review"
+}
+```
+
+All fields are accepted; `visualId` is optional and used for single-visual embedding mode.
+
+**Response:**
+```json
+{ "embedUrl": "https://...quicksight.amazonaws.com/embed/..." }
+```
+
+**Frontend usage (called in `goTo()`):**
+1. When the user clicks a dot or the auto-rotator advances to a new slide
+2. If the new slide is on a **different dashboard** than the current one, the frontend calls `fetchFreshEmbedUrl()` which hits this endpoint
+3. The fresh URL is then embedded via the QuickSight SDK (a new `EmbeddingContext` must be created per dashboard)
+4. If the new slide is on the **same dashboard**, the frontend uses `navigateToSheet()` (QuickSight SDK method) instead — no API call needed
+
+---
+
+## Architecture
+
+```
+START.bat / START-PS.ps1
+    │
+    ├── Server 1: node server.js  (PORT=3000, QUICKSIGHT_PROFILE=info)
+    │   └── Profile "info": 2 slides (Sales & Installs, Department Visual)
+    │       └── Chrome on Monitor 1 (top TV) → http://localhost:3000
+    │
+    └── Server 2: node server.js  (PORT=3001, QUICKSIGHT_PROFILE=stats)
+        └── Profile "stats": 13 slides (Deal Review → Home Damage)
+            └── Chrome on Monitor 2 (bottom TV) → http://localhost:3001
+```
+
+Each server is an Express instance that:
+1. Serves the static frontend (`kiosk/public/index.html`)
+2. Generates signed QuickSight embed URLs via AWS SDK (`GenerateEmbedUrlForRegisteredUser`)
+3. Supports three slide modes: full dashboard, specific sheet, or single visual
+
+The frontend uses the **QuickSight Embedding SDK** (v2.9.0) to embed dashboards in iframes. It handles slide rotation, HUD display (clock, countdown ring, slide name), dot navigation, and auto-scroll for long dashboards.
 
 ---
 

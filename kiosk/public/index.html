@@ -81,6 +81,15 @@
   #retry:hover { background: rgba(232,151,58,0.1); }
 
   #flash { position: fixed; inset: 0; background: var(--accent); opacity: 0; pointer-events: none; z-index: 190; transition: opacity 0.25s; }
+
+  #pause-btn {
+    padding: 3px 10px; background: transparent; border: 1px solid var(--border);
+    color: var(--muted); font-family: var(--font); font-size: 9px;
+    letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer;
+    border-radius: 3px; white-space: nowrap; transition: color 0.2s, border-color 0.2s;
+  }
+  #pause-btn:hover { color: var(--accent); border-color: var(--accent); }
+  #pause-btn.paused { color: var(--accent); border-color: var(--accent); }
 </style>
 </head>
 <body>
@@ -213,9 +222,18 @@ function stopAutoScroll() {
 /* ── Embed dashboard via SDK ─────────────────────────────────── */
 async function embedDashboard(embedUrl, initialSheetId, isAutoScroll) {
   const vp = document.getElementById('viewport');
-  vp.innerHTML = '';
-  dashLoaded   = false;
+
+  // Remove old container and give SDK time to clean up
+  const oldContainer = document.getElementById('qs-container');
+  if (oldContainer) {
+    oldContainer.remove();
+  }
   embeddedDash = null;
+  dashLoaded = false;
+
+  // Brief delay to let the QuickSight SDK finish tearing down the
+  // previous iframe / embedding context before we create a new one.
+  await new Promise(r => setTimeout(r, 200));
 
   const container = document.createElement('div');
   container.id = 'qs-container';
@@ -225,59 +243,74 @@ async function embedDashboard(embedUrl, initialSheetId, isAutoScroll) {
   const { createEmbeddingContext } = window.QuickSightEmbedding;
   const context = await createEmbeddingContext();
 
-  embeddedDash = await context.embedDashboard(
-    {
-      url:                   embedUrl,
-      container:             container,
-      height:                '100%',
-      width:                 '100%',
-      withIframePlaceholder: true,
-    },
-    {
-      toolbarOptions: {
-        export:   false,
-        undoRedo: false,
-        reset:    false,
+  await new Promise((resolve, reject) => {
+    context.embedDashboard(
+      {
+        url:                   embedUrl,
+        container:             container,
+        height:                '100%',
+        width:                 '100%',
+        withIframePlaceholder: true,
       },
-      sheetOptions: {
-        initialSheetId:                    initialSheetId,
-        singleSheet:                       false,
-        emitSizeChangedEventOnSheetChange: false,
-      },
-      themeOptions: {
-        themeArn: "arn:aws:quicksight::aws:theme/MIDNIGHT",
-        preloadThemes: [
-          "arn:aws:quicksight::aws:theme/MIDNIGHT",
-          "arn:aws:quicksight::aws:theme/RAINIER",
-        ],
-      },
-      attributionOptions: {
-        overlayContent: false,
-      },
-      onMessage: async (messageEvent) => {
-        if (messageEvent.eventName === 'CONTENT_LOADED') {
-          dashLoaded = true;
-          console.log('[QS] CONTENT_LOADED — current slide:', slides[current]?.name);
-          if (current !== 0) {
-            const sheetId = slides[current].sheetId;
-            if (sheetId) {
-              console.log('[QS] Late-navigating to sheet:', sheetId);
-              await embeddedDash.setSelectedSheetId(sheetId);
-            }
+      {
+        toolbarOptions: {
+          export:   false,
+          undoRedo: false,
+          reset:    false,
+        },
+        sheetOptions: {
+          initialSheetId:                    initialSheetId,
+          singleSheet:                       false,
+          emitSizeChangedEventOnSheetChange: false,
+        },
+        themeOptions: {
+          themeArn: "arn:aws:quicksight::aws:theme/MIDNIGHT",
+          preloadThemes: [
+            "arn:aws:quicksight::aws:theme/MIDNIGHT",
+            "arn:aws:quicksight::aws:theme/RAINIER",
+          ],
+        },
+        attributionOptions: {
+          overlayContent: false,
+        },
+        onMessage: (messageEvent) => {
+          if (messageEvent.eventName === 'CONTENT_LOADED') {
+            dashLoaded = true;
+            console.log('[QS] CONTENT_LOADED — slide:', slides[current]?.name);
+            resolve();
           }
-        }
-        if (messageEvent.eventName === 'ERROR_OCCURRED') {
-          console.error('[QS] ERROR_OCCURRED:', messageEvent);
-        }
-      },
+          if (messageEvent.eventName === 'ERROR_OCCURRED') {
+            console.error('[QS] ERROR_OCCURRED:', messageEvent);
+            reject(new Error(messageEvent.error || 'Unknown embed error'));
+          }
+        },
+      }
+    ).then((dashboard) => {
+      embeddedDash = dashboard;
+    });
+  });
+
+  console.log('[QS] CONTENT_LOADED — current slide:', slides[current]?.name);
+
+  // Late-navigate to the correct sheet if initialSheetId didn't land us there
+  if (initialSheetId) {
+    try {
+      await new Promise(r => setTimeout(r, 300));
+      await embeddedDash.setSelectedSheetId(initialSheetId);
+    } catch (e) {
+      console.error('[QS] Late-navigate failed:', e);
     }
-  );
+  }
 }
 
 /* ── Navigate to sheet ───────────────────────────────────────── */
 async function navigateToSheet(sheetId) {
   if (!embeddedDash || !sheetId) return;
-  if (!dashLoaded) return;
+  if (!dashLoaded) {
+    // Wait for content to load before navigating
+    await new Promise(r => setTimeout(r, 500));
+    if (!dashLoaded) return;
+  }
   try {
     console.log('[NAV] setSelectedSheetId:', sheetId);
     const result = await embeddedDash.setSelectedSheetId(sheetId);
@@ -293,8 +326,9 @@ async function goTo(idx) {
   const oldDot = document.getElementById(`dot-${current}`);
   if (oldDot) oldDot.classList.remove('active');
 
+  const oldDashboardId = slides[current]?.dashboardId;
   const newSlide = slides[idx];
-  const needsReembed = newSlide.dashboardId !== slides[current]?.dashboardId;
+  const needsReembed = newSlide.dashboardId !== oldDashboardId;
 
   current = idx;
   updateDots(current);
@@ -303,8 +337,22 @@ async function goTo(idx) {
   rotCount = rotSecs;
 
   if (needsReembed) {
-    // Different dashboard — destroy SDK context and re-embed
-    await embedDashboard(newSlide.embedUrl, newSlide.sheetId, newSlide.autoScroll);
+    // Different dashboard — fetch a fresh embed URL and re-embed.
+    // We must NOT reuse the cached embedUrl from startup because the
+    // QuickSight authorization token in it gets consumed and becomes
+    // invalid for a new EmbeddingContext.
+    try {
+      const freshUrl = await fetchFreshEmbedUrl(newSlide);
+      await embedDashboard(freshUrl, newSlide.sheetId, newSlide.autoScroll);
+    } catch (err) {
+      console.error('[GOTO] Failed to get fresh embed URL:', err);
+      setStatus('error', 'Embed error');
+      overlay('⚠', 'Embed Error', err.message, true);
+      // Restore current index since embed failed
+      current = idx;
+      updateDots(current);
+      return;
+    }
     setStatus('live', 'Live');
   } else {
     // Same dashboard — just navigate to the sheet
@@ -350,6 +398,24 @@ async function fetchEmbedUrls() {
   return (await res.json()).slides;
 }
 
+async function fetchFreshEmbedUrl(slide) {
+  const res = await fetch('/api/embed-url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      dashboardId: slide.dashboardId,
+      sheetId:     slide.sheetId,
+      visualId:    slide.visualId,
+      name:        slide.name,
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.hint || body.error || `HTTP ${res.status}`);
+  }
+  return (await res.json()).embedUrl;
+}
+
 /* ── Refresh every 10 min ────────────────────────────────────── */
 async function refresh() {
   setStatus('load', 'Refreshing');
@@ -359,7 +425,9 @@ async function refresh() {
   setTimeout(() => { flash.style.opacity = '0'; }, 300);
   try {
     slides = await fetchEmbedUrls();
-    await embedDashboard(slides[0].embedUrl, slides[current].sheetId, slides[current]?.autoScroll);
+    // If current index is out of bounds after refresh, clamp it
+    current = Math.min(current, slides.length - 1);
+    await embedDashboard(slides[current].embedUrl, slides[current].sheetId, slides[current]?.autoScroll);
     refCount = refSecs;
     setStatus('live', 'Live');
     if (ready) startAutoScroll();

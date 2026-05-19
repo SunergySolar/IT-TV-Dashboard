@@ -160,6 +160,19 @@ app.get('/api/embed', async (req, res) => {
   }
 });
 
+// ── POST /api/embed-url — generate a single embed URL on demand ─
+app.post('/api/embed-url', async (req, res) => {
+  try {
+    const { dashboardId, sheetId, visualId, name } = req.body;
+    const slide = { dashboardId, sheetId, visualId, name: name || 'unknown' };
+    const embedUrl = await generateEmbedUrl(slide);
+    res.json({ embedUrl });
+  } catch (err) {
+    console.error(`[embed-url] Error:`, err.message);
+    res.status(500).json({ error: err.message, hint: 'Check server logs for details.' });
+  }
+});
+
 // ── GET /api/health ──────────────────────────────────────────────
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 
