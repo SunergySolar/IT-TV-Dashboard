@@ -6,6 +6,7 @@ Dual-monitor rotating kiosk for AWS QuickSight dashboards.
 monitor1\   →  2 dashboards       →  http://localhost:3000
 monitor2\   →  13 dashboard tabs  →  http://localhost:3001
 ```
+*** More can be added by copying the .envs you set up, changing ports, and making minor tweaks to the server.js and html files
 
 ---
 
@@ -36,6 +37,7 @@ AWS_SECRET_ACCESS_KEY=...
 AWS_REGION=us-east-1
 AWS_ACCOUNT_ID=123456789012
 ```
+*** Must have username added for full dashboard + tabs integration
 Ports are already set: monitor1 = 3000, monitor2 = 3001.
 
 ### Step 3 — Fill in both config.js files
