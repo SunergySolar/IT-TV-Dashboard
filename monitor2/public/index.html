@@ -148,13 +148,6 @@ function setStatus(type, text) {
   document.getElementById('status-txt').textContent = text;
 }
 
-function getShortSheetId(slide) {
-  if (!slide?.sheetId) return null;
-  return slide.sheetId.includes('_')
-    ? slide.sheetId.split('_').slice(1).join('_')
-    : slide.sheetId;
-}
-
 /* ── Dot rail ────────────────────────────────────────────────── */
 function buildDots(count) {
   const dots = document.getElementById('dots');
@@ -214,7 +207,7 @@ async function embedDashboard(embedUrl, initialSheetId) {
           dashLoaded = true;
           console.log('[QS] CONTENT_LOADED — current slide:', slides[current]?.name);
           if (current !== 0) {
-            const sheetId = getShortSheetId(slides[current]);
+            const sheetId = slides[current].sheetId;
             if (sheetId) {
               console.log('[QS] Late-navigating to sheet:', sheetId);
               await embeddedDash.setSelectedSheetId(sheetId);
@@ -251,7 +244,7 @@ async function goTo(idx) {
   document.getElementById('hud-name').textContent  = slides[current]?.name || '—';
   document.getElementById('hud-count').textContent = `(${current + 1} / ${slides.length})`;
   rotCount = rotSecs;
-  await navigateToSheet(getShortSheetId(slides[current]));
+  await navigateToSheet(slides[current].sheetId);
 }
 
 function next() { goTo((current + 1) % slides.length); }
@@ -299,7 +292,7 @@ async function refresh() {
   setTimeout(() => { flash.style.opacity = '0'; }, 300);
   try {
     slides = await fetchEmbedUrls();
-    await embedDashboard(slides[0].embedUrl, getShortSheetId(slides[current]));
+    await embedDashboard(slides[0].embedUrl, slides[current].sheetId);
     refCount = refSecs;
     setStatus('live', 'Live');
   } catch (err) {
@@ -344,7 +337,7 @@ async function init() {
     slides = await fetchEmbedUrls();
 
     current = 0;
-    await embedDashboard(slides[0].embedUrl, getShortSheetId(slides[0]));
+    await embedDashboard(slides[0].embedUrl, slides[0].sheetId);
     updateDots(0);
 
     document.getElementById('hud-name').textContent  = slides[0].name;
