@@ -199,6 +199,13 @@ async function embedDashboard(embedUrl, initialSheetId) {
         singleSheet:                       false,
         emitSizeChangedEventOnSheetChange: false,
       },
+      themeOptions: {
+        themeArn: "arn:aws:quicksight::aws:theme/MIDNIGHT",
+        preloadThemes: [
+          "arn:aws:quicksight::aws:theme/MIDNIGHT",
+          "arn:aws:quicksight::aws:theme/RAINIER",
+        ],
+      },
       attributionOptions: {
         overlayContent: false,
       },
