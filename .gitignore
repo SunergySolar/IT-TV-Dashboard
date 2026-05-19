@@ -1,0 +1,12 @@
+# macOS resource fork files
+._*
+
+# Node.js
+node_modules/
+
+# Environment files (may contain secrets)
+.env
+
+# Log files
+*.log
+kiosk-launch.log
