@@ -155,16 +155,22 @@ async function buildSlideUrls() {
 
   const slides = CONFIG_SLIDES;
 
-  const visualSlides = slides.filter(s => s.visualId);
-  const sheetSlides  = slides.filter(s => !s.visualId);
+  const visualSlides = slides.filter((s) => s.visualId);
+  const sheetSlides = slides.filter((s) => !s.visualId);
 
-  const delay = () => new Promise(r => setTimeout(r, 200));
+  const delay = () => new Promise((r) => setTimeout(r, 200));
 
-  // One API call per unique dashboard for sheet slides
-  const uniqueIds = [...new Set(sheetSlides.map(s => s.dashboardId))];
-  const baseUrlMap = new Map();
-  for (const id of uniqueIds) {
-    baseUrlMap.set(id, await generateEmbedUrl({ dashboardId: id }));
+  // One API call per unique (dashboardId, sheetId) pair for sheet slides
+  const uniqueKeys = [
+    ...new Set(sheetSlides.map((s) => `${s.dashboardId}||${s.sheetId ?? ""}`)),
+  ];
+  const sheetUrlMap = new Map();
+  for (const key of uniqueKeys) {
+    const [dashboardId, sheetId] = key.split("||");
+    sheetUrlMap.set(
+      key,
+      await generateEmbedUrl({ dashboardId, sheetId: sheetId || null }),
+    );
     await delay();
   }
 
@@ -175,28 +181,26 @@ async function buildSlideUrls() {
   }
 
   // Assemble final list preserving original order
-  return slides.map(slide => {
+  return slides.map((slide) => {
     let embedUrl;
 
     if (slide.visualId) {
       embedUrl = slide._embedUrl;
       delete slide._embedUrl;
     } else {
-      const base = baseUrlMap.get(slide.dashboardId);
-      embedUrl = slide.sheetId
-        ? `${base}#p.initialSheetId=${encodeURIComponent(slide.sheetId)}`
-        : base;
+      const key = `${slide.dashboardId}||${slide.sheetId ?? ""}`;
+      embedUrl = sheetUrlMap.get(key);
     }
 
     return {
-      name:        slide.name,
+      name: slide.name,
       embedUrl,
-      visualId:    slide.visualId,
-      sheetId:     slide.sheetId,
+      visualId: slide.visualId,
+      sheetId: slide.sheetId,
       dashboardId: slide.dashboardId,
-      autoScroll:          !!slide.autoScroll,
+      autoScroll: !!slide.autoScroll,
       scrollContentHeight: slide.scrollContentHeight || null,
-      scrollSteps:         slide.scrollSteps || null,
+      scrollSteps: slide.scrollSteps || null,
     };
   });
 }

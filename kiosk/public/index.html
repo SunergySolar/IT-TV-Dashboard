@@ -441,7 +441,7 @@ async function embedItem(embedUrl, initialSheetId, isAutoScroll) {
   if (initialSheetId) {
     try {
       await new Promise(r => setTimeout(r, 300));
-      await embedContext.setSelectedSheetId(initialSheetId);
+      await embeddedItem.setSelectedSheetId(initialSheetId);
     } catch (e) {
       log.error('embedItem:late-navigate', { error: e?.message });
     }
