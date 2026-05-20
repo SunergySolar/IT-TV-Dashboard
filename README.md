@@ -61,6 +61,27 @@ Finding your IDs: open a QuickSight dashboard tab in your browser. The URL looks
 /dashboards/DASHBOARD_ID/sheets/SHEET_ID
 ```
 
+**Auto-scroll slides** — slides that are taller than one screen can be configured to scroll automatically:
+
+```js
+{
+  name: "Department Visual",
+  dashboardId: "...",
+  sheetId: "...",
+  visualId: "...",
+  autoScroll: true,         // enables auto-scroll for this slide
+  scrollSteps: 8,           // how many scroll steps across the rotation interval (default: 8)
+  scrollContentHeight: 1800 // height in px that the iframe is rendered at (default: 1800)
+}
+```
+
+`scrollContentHeight` is the most important tuning value. It controls how tall QuickSight
+renders the iframe, which determines how much content is drawn. If the scroll stops before
+reaching the bottom of the visual, increase this number. If there is dead black space at
+the bottom of the scroll, decrease it. Start with `1800` and adjust in ~200px increments
+until the bottom of the visual lines up with the bottom of the screen at the end of a
+rotation.
+
 ### Step 4 — Adjust monitor positions in START.bat
 Open `START.bat` in Notepad. Near the top, set the screen coordinates
 for where Chrome should open on each monitor:
@@ -173,7 +194,9 @@ The Express server (`kiosk/server.js`) exposes four endpoints. Both monitor inst
       "embedUrl": "https://...quicksight.amazonaws.com/embed/...",
       "sheetId": "da47eea0-...-f2b2b6f9-271c-47fa-887c-5ca1b782dc3b",
       "dashboardId": "da47eea0-bf07-445a-8d2f-468f7c199a6e",
-      "autoScroll": false
+      "autoScroll": false,
+      "scrollContentHeight": null,
+      "scrollSteps": null
     },
     ...
   ],
@@ -295,3 +318,5 @@ Replace the placeholder values with your region, account ID, and dashboard IDs.
 | "QuickSightUserNotFoundException" | `QUICKSIGHT_KIOSK_USER` not registered in QuickSight — create the user per QuickSight Requirements above |
 | "ResourceNotFoundException" | User or dashboard not found — check `QUICKSIGHT_KIOSK_USER` and dashboard IDs |
 | Port already in use | Run STOP.bat first, or restart the PC |
+| Auto-scroll stops before reaching the bottom | Increase `scrollContentHeight` in `config.js` for that slide (try +200px increments) |
+| Auto-scroll ends with black space at the bottom | Decrease `scrollContentHeight` in `config.js` for that slide (try -200px increments) |

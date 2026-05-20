@@ -36,6 +36,7 @@ module.exports = {
             "ece79b96-4add-415f-a753-97bca2613117_7459ce6f-7ae1-440b-a8fe-8f8c0f2d87d2",
           autoScroll: true,
           scrollSteps: 8,
+          scrollContentHeight: 1800, // px — how tall the iframe is rendered so QuickSight draws full content
         },
       ],
     },

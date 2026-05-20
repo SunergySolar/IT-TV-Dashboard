@@ -194,7 +194,9 @@ async function buildSlideUrls() {
       visualId:    slide.visualId,
       sheetId:     slide.sheetId,
       dashboardId: slide.dashboardId,
-      autoScroll:  !!slide.autoScroll,
+      autoScroll:          !!slide.autoScroll,
+      scrollContentHeight: slide.scrollContentHeight || null,
+      scrollSteps:         slide.scrollSteps || null,
     };
   });
 }

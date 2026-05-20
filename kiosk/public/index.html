@@ -55,7 +55,7 @@
 
   /* ── Auto-scroll for slides that need it ──────────────────── */
   #qs-container.scrolling {
-    height: 160%;
+    /* Height is set explicitly in JS based on scrollContentHeight config */
     transition: transform 3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
@@ -239,17 +239,19 @@ function startAutoScroll() {
     return;
   }
 
-  // Expand iframe and container height so full content is rendered in DOM
-  const iframeH = iframe.scrollHeight;
-  iframe.style.height = iframeH + 'px';
-  container.style.height = iframeH + 'px';
+  // Use the configured content height (set on the iframe by embedItem).
+  // iframe.scrollHeight is unreliable for cross-origin frames — use offsetHeight instead,
+  // which reflects the explicit pixel height we gave the iframe.
+  const iframeH = iframe.offsetHeight || slide.scrollContentHeight || 1800;
+  const viewportH = document.getElementById('viewport').clientHeight || window.innerHeight;
 
-  // Dynamic scroll params
+  // Dynamic scroll params — only scroll the overflow (content below the fold)
   const scrollSteps = slide.scrollSteps || 8;
   const scrollIntervalMs = (rotSecs * 1000) / scrollSteps;
-  stepSize = iframeH / scrollSteps;
-  maxScroll = -iframeH;
-  log.info('startAutoScroll', { iframeH, scrollSteps, scrollIntervalMs, stepSize: +stepSize.toFixed(1), maxScroll });
+  const scrollableDistance = Math.max(iframeH - viewportH, 0);
+  stepSize = scrollableDistance / scrollSteps;
+  maxScroll = -scrollableDistance;
+  log.info('startAutoScroll', { iframeH, viewportH, scrollableDistance, scrollSteps, scrollIntervalMs, stepSize: +stepSize.toFixed(1), maxScroll });
 
   scrollTimer = setInterval(() => {
     const currentTransform = container.style.transform || 'translateY(0px)';
@@ -292,15 +294,15 @@ function resumeAutoScroll() {
   const iframe = container.querySelector('iframe');
   if (!iframe) return;
 
-  const iframeH = iframe.scrollHeight;
-  iframe.style.height = iframeH + 'px';
-  container.style.height = iframeH + 'px';
+  const iframeH = iframe.offsetHeight || slide.scrollContentHeight || 1800;
+  const viewportH = document.getElementById('viewport').clientHeight || window.innerHeight;
 
   const scrollSteps = slide.scrollSteps || 8;
   const scrollIntervalMs = (rotSecs * 1000) / scrollSteps;
-  stepSize = iframeH / scrollSteps;
-  maxScroll = -iframeH;
-  log.info('resumeAutoScroll', { iframeH, scrollSteps, scrollIntervalMs, stepSize: +stepSize.toFixed(1), maxScroll });
+  const scrollableDistance = Math.max(iframeH - viewportH, 0);
+  stepSize = scrollableDistance / scrollSteps;
+  maxScroll = -scrollableDistance;
+  log.info('resumeAutoScroll', { iframeH, viewportH, scrollableDistance, scrollSteps, scrollIntervalMs, stepSize: +stepSize.toFixed(1), maxScroll });
 
   scrollTimer = setInterval(() => {
     const currentTransform = container.style.transform || 'translateY(0px)';
@@ -370,10 +372,14 @@ async function embedItem(embedUrl, initialSheetId, isAutoScroll) {
       reject(new Error('Timed out waiting for QuickSight CONTENT_LOADED (30s)'));
     }, 30_000);
 
+    const contentH = isAutoScroll ? (slides[current]?.scrollContentHeight || 1800) : null;
+    if (isAutoScroll && contentH) {
+      container.style.height = contentH + 'px';
+    }
     const frameOptions = {
       url:                   embedUrl,
       container:             container,
-      height:                '100%',
+      height:                isAutoScroll ? (contentH + 'px') : '100%',
       width:                 '100%',
       withIframePlaceholder: true,
     };
