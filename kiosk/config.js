@@ -18,7 +18,7 @@ module.exports = {
     info: {
       DISPLAY_TITLE: "Overall Info",
       ROTATE_INTERVAL_MS: 60_000, // 60 seconds per slide
-      REFRESH_INTERVAL_MS: 60_000, // Re-fetch embed URLs every 1 minute (testing)
+      REFRESH_INTERVAL_MS: 600_000, // Re-fetch embed URLs every 10 minutes
 
       SLIDES: [
         {
@@ -43,7 +43,7 @@ module.exports = {
     stats: {
       DISPLAY_TITLE: "Stats per Department",
       ROTATE_INTERVAL_MS: 60_000, // 60 seconds per slide
-      REFRESH_INTERVAL_MS: 60_000, // Re-fetch embed URLs every 1 minute (testing)
+      REFRESH_INTERVAL_MS: 600_000, // Re-fetch embed URLs every 10 minutes
 
       SLIDES: [
         {

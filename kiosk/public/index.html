@@ -135,6 +135,17 @@
 </div>
 
 <script>
+/* ── Logger ──────────────────────────────────────────────────── */
+class Logger {
+  constructor(tag) { this.tag = tag; this.debug = false; }
+  _ts()            { return new Date().toISOString(); }
+  _fmt(fn, params) { return `[${this._ts()}] [${this.tag}] [${fn}]${params !== undefined ? ' ' + JSON.stringify(params) : ''}`; }
+  info(fn, params) { if (this.debug) console.log(this._fmt(fn, params)); }
+  warn(fn, params) { if (this.debug) console.warn(this._fmt(fn, params)); }
+  error(fn, params){ console.error(this._fmt(fn, params)); }
+}
+const log = new Logger('kiosk');
+
 /* ── Runtime state ───────────────────────────────────────────── */
 let slides           = [];
 let current          = 0;
@@ -144,9 +155,9 @@ let rotCount         = 60;
 let refCount         = 600;
 let ready            = false;
 let ticker           = null;
-let embeddedDash     = null;
+let embeddedItem     = null;
 let embedContext     = null;
-let dashLoaded       = false;
+let itemLoaded       = false;
 let scrollTimer      = null;
 let scrollDir        = 0;
 let autoScrollSlides = [];
@@ -157,23 +168,37 @@ let busy             = false;
 const CIRC           = 2 * Math.PI * 11;
 
 /* ── Helpers ─────────────────────────────────────────────────── */
+// Shows the full-screen overlay with an icon, title, message, and optional retry button
 function overlay(icon, title, msg, showRetry = false) {
+  log.info('overlay', { icon, title, msg, showRetry });
+
   document.getElementById('overlay').classList.remove('hidden');
   document.getElementById('ov-icon').textContent  = icon;
   document.getElementById('ov-title').textContent = title;
   document.getElementById('ov-msg').textContent   = msg;
   document.getElementById('retry').style.display  = showRetry ? 'inline-block' : 'none';
 }
-function hideOverlay() { document.getElementById('overlay').classList.add('hidden'); }
+// Hides the full-screen overlay
+function hideOverlay() {
+  log.info('hideOverlay');
 
+  document.getElementById('overlay').classList.add('hidden');
+}
+
+// Updates the HUD status indicator dot and label text
 function setStatus(type, text) {
+  log.info('setStatus', { type, text });
+
   const d = document.getElementById('status-dot');
   d.className = 'dot ' + ({ live: 'dot-live', error: 'dot-err', load: 'dot-load' }[type] || 'dot-load');
   document.getElementById('status-txt').textContent = text;
 }
 
 /* ── Dot rail ────────────────────────────────────────────────── */
+// Builds the slide navigation dot rail based on the number of slides
 function buildDots(count) {
+  log.info('buildDots', { count });
+
   const dots = document.getElementById('dots');
   dots.innerHTML = '';
   for (let i = 0; i < count; i++) {
@@ -186,12 +211,18 @@ function buildDots(count) {
   }
 }
 
+// Sets the active dot in the navigation rail to the given slide index
 function updateDots(idx) {
+  log.info('updateDots', { idx });
+
   document.querySelectorAll('.ndot').forEach((d, i) => d.classList.toggle('active', i === idx));
 }
 
 /* ── Auto-scroll ─────────────────────────────────────────────── */
+// Starts the auto-scroll animation for the current slide if it has autoScroll enabled
 function startAutoScroll() {
+  log.info('startAutoScroll', { slide: slides[current]?.name, autoScroll: slides[current]?.autoScroll });
+
   stopAutoScroll();
   const slide = slides[current];
   if (!slide?.autoScroll) return;
@@ -204,7 +235,7 @@ function startAutoScroll() {
   // Find the QuickSight iframe inside the container
   const iframe = container.querySelector('iframe');
   if (!iframe) {
-    console.log('[SCROLL] no iframe found yet in container');
+    log.warn('startAutoScroll', { status: 'no iframe found in container' });
     return;
   }
 
@@ -218,18 +249,21 @@ function startAutoScroll() {
   const scrollIntervalMs = (rotSecs * 1000) / scrollSteps;
   stepSize = iframeH / scrollSteps;
   maxScroll = -iframeH;
-  console.log(`[SCROLL] iframeH: ${iframeH}px | steps: ${scrollSteps} | interval: ${scrollIntervalMs}ms | stepSize: ${stepSize.toFixed(1)}px | max: ${maxScroll}px`);
+  log.info('startAutoScroll', { iframeH, scrollSteps, scrollIntervalMs, stepSize: +stepSize.toFixed(1), maxScroll });
 
   scrollTimer = setInterval(() => {
     const currentTransform = container.style.transform || 'translateY(0px)';
     const currentY = parseFloat(currentTransform.match(/translateY\(([-\d.]+)px\)/)?.[1]) || 0;
     const newY = Math.max(currentY - stepSize, maxScroll);
     container.style.transform = `translateY(${newY}px)`;
-    console.log(`[SCROLL] tick: ${currentY.toFixed(1)} → ${newY.toFixed(1)}px`);
+    log.info('startAutoScroll:tick', { from: +currentY.toFixed(1), to: +newY.toFixed(1) });
   }, scrollIntervalMs);
 }
 
+// Stops auto-scroll, clears the scroll timer, and resets container transform
 function stopAutoScroll() {
+  log.info('stopAutoScroll', { scrollTimerActive: !!scrollTimer });
+
   if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
   scrollDir = 0;
   const container = document.getElementById('qs-container');
@@ -239,11 +273,17 @@ function stopAutoScroll() {
   }
 }
 
+// Pauses auto-scroll by clearing the scroll interval without resetting the container position
 function pauseAutoScroll() {
+  log.info('pauseAutoScroll', { scrollTimerActive: !!scrollTimer });
+
   if (scrollTimer) { clearInterval(scrollTimer); scrollTimer = null; }
 }
 
+// Resumes auto-scroll from the current position for the active slide
 function resumeAutoScroll() {
+  log.info('resumeAutoScroll', { slide: slides[current]?.name, autoScroll: slides[current]?.autoScroll });
+
   const slide = slides[current];
   if (!slide?.autoScroll) return;
   const container = document.getElementById('qs-container');
@@ -260,19 +300,22 @@ function resumeAutoScroll() {
   const scrollIntervalMs = (rotSecs * 1000) / scrollSteps;
   stepSize = iframeH / scrollSteps;
   maxScroll = -iframeH;
-  console.log(`[SCROLL] iframeH: ${iframeH}px | steps: ${scrollSteps} | interval: ${scrollIntervalMs}ms | stepSize: ${stepSize.toFixed(1)}px | max: ${maxScroll}px`);
+  log.info('resumeAutoScroll', { iframeH, scrollSteps, scrollIntervalMs, stepSize: +stepSize.toFixed(1), maxScroll });
 
   scrollTimer = setInterval(() => {
     const currentTransform = container.style.transform || 'translateY(0px)';
     const currentY = parseFloat(currentTransform.match(/translateY\(([-\d.]+)px\)/)?.[1]) || 0;
     const newY = Math.max(currentY - stepSize, maxScroll);
     container.style.transform = `translateY(${newY}px)`;
-    console.log(`[SCROLL] tick: ${currentY.toFixed(1)} → ${newY.toFixed(1)}px`);
+    log.info('resumeAutoScroll:tick', { from: +currentY.toFixed(1), to: +newY.toFixed(1) });
   }, scrollIntervalMs);
 }
 
 /* ── Pause / Resume ──────────────────────────────────────────── */
+// Toggles the kiosk rotation between paused and playing states
 function togglePause() {
+  log.info('togglePause', { pausedBefore: paused });
+
   paused = !paused;
   const btn = document.getElementById('pause-btn');
   if (paused) {
@@ -289,7 +332,11 @@ function togglePause() {
 }
 
 /* ── Embed dashboard via SDK ─────────────────────────────────── */
-async function embedDashboard(embedUrl, initialSheetId, isAutoScroll) {
+// Tears down any existing QuickSight embed and creates a fresh one for the given URL and sheet
+async function embedItem(embedUrl, initialSheetId, isAutoScroll) {
+  log.info('embedItem', { embedUrl, initialSheetId, isAutoScroll });
+
+  if (!embedUrl) throw new Error('embedUrl is empty — server may have returned no URL for this slide');
   const vp = document.getElementById('viewport');
 
   // Dispose the previous EmbeddingContext and clean up all leaked
@@ -307,8 +354,8 @@ async function embedDashboard(embedUrl, initialSheetId, isAutoScroll) {
   const oldContainer = document.getElementById('qs-container');
   if (oldContainer) oldContainer.remove();
 
-  embeddedDash = null;
-  dashLoaded = false;
+  embeddedItem = null;
+  itemLoaded = false;
 
   const container = document.createElement('div');
   container.id = 'qs-container';
@@ -319,85 +366,108 @@ async function embedDashboard(embedUrl, initialSheetId, isAutoScroll) {
   embedContext = await createEmbeddingContext();
 
   await new Promise((resolve, reject) => {
-    embedContext.embedDashboard(
-      {
-        url:                   embedUrl,
-        container:             container,
-        height:                '100%',
-        width:                 '100%',
-        withIframePlaceholder: true,
+    const timeout = setTimeout(() => {
+      reject(new Error('Timed out waiting for QuickSight CONTENT_LOADED (30s)'));
+    }, 30_000);
+
+    const frameOptions = {
+      url:                   embedUrl,
+      container:             container,
+      height:                '100%',
+      width:                 '100%',
+      withIframePlaceholder: true,
+    };
+
+    const contentOptions = {
+      toolbarOptions: {
+        export:   false,
+        undoRedo: false,
+        reset:    false,
       },
-      {
-        toolbarOptions: {
-          export:   false,
-          undoRedo: false,
-          reset:    false,
-        },
-        sheetOptions: {
-          initialSheetId:                    initialSheetId,
-          singleSheet:                       false,
-          emitSizeChangedEventOnSheetChange: false,
-        },
-        themeOptions: {
-          themeArn: "arn:aws:quicksight::aws:theme/MIDNIGHT",
-          preloadThemes: [
-            "arn:aws:quicksight::aws:theme/MIDNIGHT",
-            "arn:aws:quicksight::aws:theme/RAINIER",
-          ],
-        },
-        attributionOptions: {
-          overlayContent: false,
-        },
-        onMessage: (messageEvent) => {
-          if (messageEvent.eventName === 'CONTENT_LOADED') {
-            dashLoaded = true;
-            console.log('[QS] CONTENT_LOADED — slide:', slides[current]?.name);
-            resolve();
-          }
-          if (messageEvent.eventName === 'ERROR_OCCURRED') {
-            console.error('[QS] ERROR_OCCURRED:', messageEvent);
-            reject(new Error(messageEvent.error || 'Unknown embed error'));
-          }
-        },
-      }
-    ).then((dashboard) => {
-      embeddedDash = dashboard;
+      sheetOptions: {
+        initialSheetId:                    initialSheetId,
+        singleSheet:                       false,
+        emitSizeChangedEventOnSheetChange: false,
+      },
+      themeOptions: {
+        themeArn: "arn:aws:quicksight::aws:theme/MIDNIGHT",
+        preloadThemes: [
+          "arn:aws:quicksight::aws:theme/MIDNIGHT",
+          "arn:aws:quicksight::aws:theme/RAINIER",
+        ],
+      },
+      attributionOptions: {
+        overlayContent: false,
+      },
+      onMessage: (messageEvent) => {
+        if (messageEvent.eventName === 'CONTENT_LOADED') {
+          clearTimeout(timeout);
+          itemLoaded = true;
+          log.info('embedItem:CONTENT_LOADED', { slide: slides[current]?.name });
+          resolve();
+        }
+        if (messageEvent.eventName === 'ERROR_OCCURRED') {
+          clearTimeout(timeout);
+          log.error('embedItem:ERROR_OCCURRED', { event: messageEvent });
+          reject(new Error(messageEvent.error || 'Unknown embed error'));
+        }
+      },
+    };
+
+    // Embed the dashboard if we dont have a visualId, otherwise embed the visual directly
+    let func;
+    if (slides[current]?.visualId) {
+      func = embedContext.embedVisual;
+    } else {
+      func = embedContext.embedDashboard;
+    }
+    func(frameOptions, contentOptions).then((item) => {
+      embeddedItem = item;
+    }).catch((err) => {
+      clearTimeout(timeout);
+      reject(err);
     });
   });
 
-  console.log('[QS] CONTENT_LOADED — current slide:', slides[current]?.name);
+  log.info('embedItem', { status: 'ready', slide: slides[current]?.name });
 
   // Late-navigate to the correct sheet if initialSheetId didn't land us there
   if (initialSheetId) {
     try {
       await new Promise(r => setTimeout(r, 300));
-      await embeddedDash.setSelectedSheetId(initialSheetId);
+      await embedContext.setSelectedSheetId(initialSheetId);
     } catch (e) {
-      console.error('[QS] Late-navigate failed:', e);
+      log.error('embedItem:late-navigate', { error: e?.message });
     }
   }
 }
 
 /* ── Navigate to sheet ───────────────────────────────────────── */
+// Navigates the currently embedded dashboard to a specific sheet by ID
 async function navigateToSheet(sheetId) {
-  if (!embeddedDash || !sheetId) return;
-  if (!dashLoaded) {
+  log.info('navigateToSheet', { sheetId, embeddedItemReady: !!embeddedItem, itemLoaded });
+
+  if (!embeddedItem || !sheetId) return;
+  if (!itemLoaded) {
     // Wait for content to load before navigating
     await new Promise(r => setTimeout(r, 500));
-    if (!dashLoaded) return;
+    if (!itemLoaded) return;
   }
   try {
-    console.log('[NAV] setSelectedSheetId:', sheetId);
-    const result = await embeddedDash.setSelectedSheetId(sheetId);
-    console.log('[NAV] result:', result);
+    log.info('navigateToSheet', { status: 'setSelectedSheetId', sheetId });
+    const result = await embeddedItem.setSelectedSheetId(sheetId);
+    log.info('navigateToSheet', { status: 'result', result });
   } catch (e) {
-    console.error('[NAV] error:', e);
+    log.error('navigateToSheet', { error: e?.message });
   }
 }
 
 /* ── Rotation ────────────────────────────────────────────────── */
+// Public entry point for slide navigation — guards against concurrent embed operations
 async function goTo(idx) {
-  // Skip if refresh() is already mid-flight to prevent two embedDashboard()
+  log.info('goTo', { idx, busy });
+
+  // Skip if refresh() is already mid-flight to prevent two embedItem()
   // calls from racing each other and tearing down each other's iframes.
   if (busy) return;
   busy = true;
@@ -408,14 +478,19 @@ async function goTo(idx) {
   }
 }
 
+// Core slide transition logic — handles re-embed vs sheet navigation based on dashboard ID change
 async function _goTo(idx) {
+  log.info('_goTo', { idx, current, slide: slides[idx]?.name });
+
   stopAutoScroll();
   const oldDot = document.getElementById(`dot-${current}`);
   if (oldDot) oldDot.classList.remove('active');
 
+  // Determine if we need to re-embed (if dashboard or visual changed) or can just navigate to a different sheet
   const oldDashboardId = slides[current]?.dashboardId;
+  const oldVisualId = slides[current]?.visualId;
   const newSlide = slides[idx];
-  const needsReembed = newSlide.dashboardId !== oldDashboardId;
+  const needsReembed = newSlide.dashboardId !== oldDashboardId || newSlide.visualId !== oldVisualId;
 
   current = idx;
   updateDots(current);
@@ -423,16 +498,16 @@ async function _goTo(idx) {
   document.getElementById('hud-count').textContent = `(${current + 1} / ${slides.length})`;
 
   if (needsReembed) {
-    // Different dashboard — fetch a fresh embed URL and re-embed.
+    // Different dashboard/visual — fetch a fresh embed URL and re-embed.
     // We must NOT reuse the cached embedUrl from startup because the
     // QuickSight authorization token in it gets consumed and becomes
     // invalid for a new EmbeddingContext.
     try {
       const freshUrl = await fetchFreshEmbedUrl(newSlide);
-      await embedDashboard(freshUrl, newSlide.sheetId, newSlide.autoScroll);
+      await embedItem(freshUrl, !newSlide?.visualId ? newSlide.sheetId : null, newSlide.autoScroll); // we set initalSheetId to null when we are attempting to use a visualId because the embedUrl for a visual doesn't support initialSheetId param, and setting it causes the embed to fail
       rotCount = rotSecs;
     } catch (err) {
-      console.error('[GOTO] Failed to get fresh embed URL:', err);
+      log.error('_goTo', { error: err?.message });
       setStatus('error', 'Embed error');
       overlay('⚠', 'Embed Error', err.message, true);
       // Restore current index since embed failed
@@ -450,10 +525,18 @@ async function _goTo(idx) {
   setTimeout(startAutoScroll, 700);
 }
 
-function next() { goTo((current + 1) % slides.length); }
+// Advances to the next slide in the rotation, wrapping around at the end
+function next() {
+  log.info('next', { current, nextIdx: (current + 1) % slides.length });
+
+  goTo((current + 1) % slides.length);
+}
 
 /* ── HUD update ──────────────────────────────────────────────── */
+// Syncs the HUD ring, progress bar, and refresh countdown to the current tick state
 function updateHUD() {
+  //log.info('updateHUD', { rotCount, refCount, ready });
+
   if (!ready) return;
   const pct = rotCount / rotSecs;
   document.getElementById('ring-fill').style.strokeDashoffset = CIRC * (1 - pct);
@@ -464,7 +547,10 @@ function updateHUD() {
 }
 
 /* ── Clock ───────────────────────────────────────────────────── */
+// Updates the HUD clock display to the current local time
 function tickClock() {
+  //log.info('tickClock');
+
   document.getElementById('hud-clock').textContent =
     new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
@@ -472,13 +558,19 @@ setInterval(tickClock, 1000);
 tickClock();
 
 /* ── API calls ───────────────────────────────────────────────── */
+// Fetches the kiosk configuration from the server
 async function fetchConfig() {
+  log.info('fetchConfig');
+
   const res = await fetch('/api/config');
   if (!res.ok) throw new Error(`Config fetch failed: HTTP ${res.status}`);
   return res.json();
 }
 
+// Fetches all slide embed URLs from the server in one batch request
 async function fetchEmbedUrls() {
+  log.info('fetchEmbedUrls');
+
   const res = await fetch('/api/embed');
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -487,7 +579,10 @@ async function fetchEmbedUrls() {
   return (await res.json()).slides;
 }
 
+// Fetches a single fresh embed URL for a given slide (used when navigating between different dashboards)
 async function fetchFreshEmbedUrl(slide) {
+  log.info('fetchFreshEmbedUrl', { slide: slide?.name, dashboardId: slide?.dashboardId, sheetId: slide?.sheetId, visualId: slide?.visualId });
+
   const res = await fetch('/api/embed-url', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -506,35 +601,41 @@ async function fetchFreshEmbedUrl(slide) {
 }
 
 /* ── Refresh every 10 min ────────────────────────────────────── */
+// Re-fetches all embed URLs and re-embeds the current slide to refresh stale QuickSight tokens
 async function refresh() {
-  // Skip if goTo() is already embedding — prevents two embedDashboard()
+  log.info('refresh', { current, busy });
+
+  // Reset immediately so the ticker doesn't re-trigger while we await.
+  refCount = refSecs;
+  // Skip if goTo() is already embedding — prevents two embedItem()
   // calls from racing and corrupting the QuickSight iframe/context.
-  if (busy) {
-    refCount = refSecs;
-    return;
-  }
-  setStatus('load', 'Refreshing');
-  stopAutoScroll();
-  const flash = document.getElementById('flash');
-  flash.style.opacity = '0.06';
-  setTimeout(() => { flash.style.opacity = '0'; }, 300);
+  if (busy) return;
+  busy = true;
   try {
+    setStatus('load', 'Refreshing');
+    stopAutoScroll();
+    const flash = document.getElementById('flash');
+    flash.style.opacity = '0.06';
+    setTimeout(() => { flash.style.opacity = '0'; }, 300);
     slides = await fetchEmbedUrls();
     // If current index is out of bounds after refresh, clamp it
     current = Math.min(current, slides.length - 1);
-    await embedDashboard(slides[current].embedUrl, slides[current].sheetId, slides[current]?.autoScroll);
+    await embedItem(slides[current].embedUrl, !slides[current]?.visualId ? slides[current].sheetId : null, slides[current]?.autoScroll); // we set initalSheetId to null when we are attempting to use a visualId because the embedUrl for a visual doesn't support initialSheetId param, and setting it causes the embed to fail
     setStatus('live', 'Live');
-    refCount = refSecs;
     if (ready) startAutoScroll();
   } catch (err) {
-    console.error('Refresh failed:', err.message);
+    log.error('refresh', { error: err.message });
     setStatus('error', 'Refresh failed');
-    refCount = refSecs;
+  } finally {
+    busy = false;
   }
 }
 
 /* ── Main tick ───────────────────────────────────────────────── */
+// Starts the 1-second interval ticker that drives rotation, refresh, and HUD updates
 function startTicker() {
+  log.info('startTicker', { rotSecs, refSecs });
+
   if (ticker) clearInterval(ticker);
   ticker = setInterval(() => {
     if (!ready) return;
@@ -549,14 +650,18 @@ function startTicker() {
 }
 
 /* ── Boot ────────────────────────────────────────────────────── */
+// Bootstraps the kiosk — fetches config and embed URLs, embeds the first slide, and starts the ticker
 async function init() {
+  log.info('init');
+
   ready        = false;
-  embeddedDash = null;
-  dashLoaded   = false;
+  embeddedItem = null;
+  itemLoaded   = false;
   overlay('⏳', 'Loading dashboards', 'Fetching configuration and signed embed URLs…');
 
   try {
     const cfg = await fetchConfig();
+    log.debug = !!cfg.debug;
     document.getElementById('hud-title').textContent = cfg.title;
     document.title = cfg.title;
     rotSecs  = cfg.rotateMs  / 1000;
@@ -573,7 +678,7 @@ async function init() {
     slides = await fetchEmbedUrls();
 
     current = 0;
-    await embedDashboard(slides[0].embedUrl, slides[0].sheetId, slides[0]?.autoScroll);
+    await embedItem(slides[0].embedUrl, !slides[0]?.visualId ? slides[0].sheetId : null, slides[0]?.autoScroll); // we set initalSheetId to null when we are attempting to use a visualId because the embedUrl for a visual doesn't support initialSheetId param, and setting it causes the embed to fail
     updateDots(0);
 
     document.getElementById('hud-name').textContent  = slides[0].name;
@@ -587,14 +692,14 @@ async function init() {
     setTimeout(startAutoScroll, 700);
 
   } catch (err) {
-    console.error('Init failed:', err);
+    log.error('init', { error: err?.message });
     setStatus('error', 'Error');
     overlay('⚠', 'Connection Error', err.message, true);
   }
 }
 
 window.addEventListener('beforeunload', () => {
-  if (embedContext) { try { embedContext.dispose(); } catch (_) {} }
+  if (embedItem) { try { embedItem.dispose(); } catch (_) {} }
 });
 
 init();
