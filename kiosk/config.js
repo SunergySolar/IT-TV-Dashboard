@@ -31,9 +31,9 @@ module.exports = {
           name: "Department Visual",
           dashboardId: "ece79b96-4add-415f-a753-97bca2613117",
           sheetId:
-            "ece79b96-4add-415f-a753-97bca2613117_674e8584-cbc5-43ac-8f89-8a3e98a1b56f",
+            "ece79b96-4add-415f-a753-97bca2613117_3fd6e3b8-a4cf-4aa5-87b5-46811d90767e",
           visualId:
-            "ece79b96-4add-415f-a753-97bca2613117_7459ce6f-7ae1-440b-a8fe-8f8c0f2d87d2",
+            "ece79b96-4add-415f-a753-97bca2613117_81cf318f-ca69-4451-bd97-61420e05eb88",
           autoScroll: true,
           scrollSteps: 8,
           scrollContentHeight: 1800, // px — how tall the iframe is rendered so QuickSight draws full content
